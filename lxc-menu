@@ -1,0 +1,118 @@
+#!/bin/sh
+#
+# Front-end to LXC to manage a bunch of development containers
+#
+# Copyright (C) 2012 Jamie Lentin <jm@lentin.co.uk>
+#
+# This file is licensed under the terms of the GNU General Public
+# License version 2.  This program is licensed "as is" without any
+# warranty of any kind, whether express or implied.
+export EDITOR=$(which ne)
+
+maximise_menu () {
+    stty size | awk '// { print $1 - 3 " " $2 - 6 " " $2 - 6 }'
+}
+
+term_title () {
+    /bin/echo -ne "\033]0;$1\007"
+}
+
+while true; do
+    # Choose a container
+    term_title "LXC containers"
+    container=$(dialog \
+        --menu "Available containers (HOME to refresh)" $(maximise_menu) \
+        "(renew all IPs)" "" \
+        $(lxc-ls -f | awk '!/^NAME / { print $1 " " ($2 == "RUNNING" ? $5 : $2) }' | sort -k2) \
+        3>&1 1>&2 2>&3)
+    exit_code=$?
+    echo
+    [ "${exit_code}" -eq "1" ] && exit 0 # Cancel
+    [ "${exit_code}" -eq "255" ] && continue # Timeout
+
+    [ "${container}" = "(renew all IPs)" ] && {
+        for c in $(lxc-ls --running); do
+            { lxc-ls --frozen | grep -q "${c}"; } && continue
+            echo === $c ====
+            lxc-attach -n $c -- /bin/sh -c "/sbin/ifdown eth0 ; /sbin/ifup eth0"
+        done
+        continue
+    }
+
+    # Get the status of the given container, show menu based on current state
+    container_status=$(lxc-info -n $container \
+        | awk '/^State:/ { print $2 }')
+    exit_code=$?
+    [ "${exit_code}" -eq "0" ] || { sleep 3; continue; }
+
+    menu_title="Container $container currently $container_status"
+    case $container_status in
+    RUNNING)
+        container_operation=$(dialog --menu "$menu_title" $(maximise_menu) \
+            attach "" \
+            freeze "" \
+            upgrade "" \
+            stop "" \
+            3>&1 1>&2 2>&3)
+        ;;
+    FROZEN)
+        container_operation="unfreeze"
+        ;;
+    STOPPED)
+        container_operation=$(dialog --menu "$menu_title" $(maximise_menu) \
+            start "" \
+            rename "" \
+            "edit-config" "" \
+            clone "" \
+            3>&1 1>&2 2>&3)
+        ;;
+    *)
+        echo "Unknown container state $container_status"
+        sleep 3
+        ;;
+    esac
+    [ -z "$container_operation" ] && continue
+
+    case $container_operation in
+    attach)
+        clear
+        term_title "LXC container shell: ${container}"
+        lxc-attach --clear-env --set-var TERM=xterm -n ${container} || sleep 3
+        ;;
+    upgrade)
+        clear
+        term_title "LXC apt upgrade: ${container}"
+        lxc-attach --clear-env --set-var TERM=xterm -n ${container} -- /bin/sh -c "/usr/bin/apt update ; /usr/bin/apt upgrade && /usr/bin/apt autoremove"
+        ;;
+    edit-config)
+        $EDITOR ".local/share/lxc/${container}/config"
+        ;;
+    rename)
+        container_new="$(dialog --inputbox "New container name" 0 0 "${container}" \
+            3>&1 1>&2 2>&3)"
+        [ -z "${container_new}" ] && continue
+        [ -d ".local/share/lxc/${container_new}" ] && { echo "${container_new} Already exists!"; sleep 3 ; continue; }
+        mv ".local/share/lxc/${container}" ".local/share/lxc/${container_new}" || { sleep 3; continue; }
+        gawk -i inplace '/^lxc.rootfs|^lxc.utsname|^lxc.mount/ { gsub(/'"${container}"'/, "'"${container_new}"'") ; print $0 }; !/^lxc.rootfs|^lxc.utsname|^lxc.mount/ { print }' ".local/share/lxc/${container_new}/config"
+
+        ROOT_UID="$(find .local/share/lxc/${container_new}/rootfs -maxdepth 0 -printf '%u\n')"
+        lxc-usernsexec -m b:0:${ROOT_UID}:1 -- /bin/sh -c "echo ${container_new} > .local/share/lxc/${container_new}/rootfs/etc/hostname"
+        [ -f ".local/share/lxc/${container_new}/rootfs/var/lib/dhcp/dhclient*.leases" ] && lxc-usernsexec -m b:0:${ROOT_UID}:1 -- rm -- ".local/share/lxc/${container_new}/rootfs/var/lib/dhcp/dhclient*.leases"
+        ;;
+    clone)
+        container_new="$(dialog --inputbox "New container name" 0 0 "" \
+            3>&1 1>&2 2>&3)"
+        [ -z "${container_new}" ] && continue
+        lxc-copy -n ${container} -N ${container_new} || sleep 3
+        ;;
+    unfreeze)
+        # Renew IP as well as unfreezing
+        echo "Running lxc-${container_operation} -n ${container}..."
+        lxc-${container_operation} -n ${container} && lxc-attach -n ${container} -- /bin/sh -c "/sbin/ifdown eth0 ; /sbin/ifup eth0"
+        ;;
+    *)
+        echo "Running lxc-${container_operation} -n ${container}..."
+        lxc-${container_operation} -n ${container} || sleep 3
+        ;;
+    esac
+done
