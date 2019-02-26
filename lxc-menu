@@ -93,7 +93,7 @@ while true; do
         [ -z "${container_new}" ] && continue
         [ -d ".local/share/lxc/${container_new}" ] && { echo "${container_new} Already exists!"; sleep 3 ; continue; }
         mv ".local/share/lxc/${container}" ".local/share/lxc/${container_new}" || { sleep 3; continue; }
-        gawk -i inplace '/^lxc.rootfs|^lxc.utsname|^lxc.mount/ { gsub(/'"${container}"'/, "'"${container_new}"'") ; print $0 }; !/^lxc.rootfs|^lxc.utsname|^lxc.mount/ { print }' ".local/share/lxc/${container_new}/config"
+        gawk -i inplace '/^lxc.rootfs|^lxc.uts.?name|^lxc.mount/ { gsub(/'"${container}"'/, "'"${container_new}"'") ; print $0 }; !/^lxc.rootfs|^lxc.utsname|^lxc.mount/ { print }' ".local/share/lxc/${container_new}/config"
 
         ROOT_UID="$(find .local/share/lxc/${container_new}/rootfs -maxdepth 0 -printf '%u\n')"
         lxc-usernsexec -m b:0:${ROOT_UID}:1 -- /bin/sh -c "echo ${container_new} > .local/share/lxc/${container_new}/rootfs/etc/hostname"
