@@ -34,7 +34,7 @@ while true; do
         for c in $(lxc-ls --running); do
             { lxc-ls --frozen | grep -q "${c}"; } && continue
             echo === $c ====
-            lxc-attach -n $c -- /bin/sh -c "/sbin/ifdown eth0 ; /sbin/ifup eth0"
+            lxc-unpriv-attach -n $c -- /bin/sh -c "/sbin/ifdown eth0 ; /sbin/ifup eth0"
         done
         continue
     }
@@ -77,12 +77,12 @@ while true; do
     attach)
         clear
         term_title "LXC container shell: ${container}"
-        lxc-attach --clear-env --set-var TERM=xterm -n ${container} || sleep 3
+        lxc-unpriv-attach --clear-env --set-var TERM=xterm -n ${container} || sleep 3
         ;;
     upgrade)
         clear
         term_title "LXC apt upgrade: ${container}"
-        lxc-attach --clear-env --set-var TERM=xterm -n ${container} -- /bin/sh -c "/usr/bin/apt update ; /usr/bin/apt upgrade && /usr/bin/apt autoremove"
+        lxc-unpriv-attach --clear-env --set-var TERM=xterm -n ${container} -- /bin/sh -c "/usr/bin/apt update ; /usr/bin/apt upgrade && /usr/bin/apt autoremove"
         ;;
     edit-config)
         $EDITOR ".local/share/lxc/${container}/config"
@@ -107,7 +107,14 @@ while true; do
     unfreeze)
         # Renew IP as well as unfreezing
         echo "Running lxc-${container_operation} -n ${container}..."
-        lxc-${container_operation} -n ${container} && lxc-attach -n ${container} -- /bin/sh -c "/sbin/ifdown eth0 ; /sbin/ifup eth0"
+        lxc-${container_operation} -n ${container} && lxc-unpriv-attach -n ${container} -- /bin/sh -c "/sbin/ifdown eth0 ; /sbin/ifup eth0"
+        # TODO: Or do systemctl restart systemd-networkd
+        ;;
+    start)
+        # https://github.com/lxc/lxc/issues/3302#issuecomment-600134756
+        # https://github.com/lxc/lxc/issues/3668
+        echo "Running lxc-${container_operation} -n ${container}..."
+        lxc-unpriv-${container_operation} -n ${container} || sleep 3
         ;;
     *)
         echo "Running lxc-${container_operation} -n ${container}..."
