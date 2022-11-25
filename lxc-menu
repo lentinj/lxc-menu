@@ -49,10 +49,10 @@ while true; do
     case $container_status in
     RUNNING)
         container_operation=$(dialog --menu "$menu_title" $(maximise_menu) \
-            console "" \
             attach "" \
             freeze "" \
             upgrade "" \
+            console "" \
             stop "" \
             3>&1 1>&2 2>&3)
         ;;
