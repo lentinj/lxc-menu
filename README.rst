@@ -53,7 +53,7 @@ CRAN::
     KEYRING=/usr/share/keyrings/cran.gpg
     # NB: CRAN instructions currently not updated, pulled key out of old installation
     # https://cloud.r-project.org/bin/linux/debian/
-    ssh lxc-host cat cran.asc | gpg --dearmor -o "$KEYRING"
+    curl https://raw.githubusercontent.com/lentinj/lxc-menu/master/cran.asc | gpg --dearmor -o "$KEYRING"
     cat <<EOF > /etc/apt/sources.list.d/cran.list
     deb [signed-by=$KEYRING] http://cloud.r-project.org/bin/linux/debian ${DISTRO}-cran40/
     EOF
