@@ -23,6 +23,7 @@ Creating new base images is done manually. As the fatcontroller::
 
 Then start, attach and do some basic setup::
 
+    echo "APT { Install-Recommends "false"; };" > /etc/apt/apt.conf.d/no-recommends
     apt update && apt upgrade
     apt install build-essential git openssh-server screen dialog ne curl
 
