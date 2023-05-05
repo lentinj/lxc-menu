@@ -58,3 +58,9 @@ CRAN::
     cat <<EOF > /etc/apt/sources.list.d/cran.list
     deb [signed-by=$KEYRING] http://cloud.r-project.org/bin/linux/debian ${DISTRO}-cran40/
     EOF
+
+MySQL::
+
+    apt install lsb-release
+    wget https://dev.mysql.com/get/mysql-apt-config_0.8.25-1_all.deb
+    dpkg -i mysql-apt-config_0.8.25-1_all.deb
