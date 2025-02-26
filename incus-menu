@@ -1,0 +1,109 @@
+#!/bin/sh
+#
+# Front-end to incus to manage a bunch of development containers
+#
+# Copyright (C) 2012 Jamie Lentin <jm@lentin.co.uk>
+#
+# This file is licensed under the terms of the GNU General Public
+# License version 2.  This program is licensed "as is" without any
+# warranty of any kind, whether express or implied.
+set -eu
+
+maximise_menu () {
+    stty size | awk '// { print $1 - 3 " " $2 - 6 " " $2 - 6 }'
+}
+
+term_title () {
+    /bin/echo -ne "\033]0;$1\007"
+}
+
+while true; do
+    # Choose a container
+    term_title "Incus containers"
+    container=$(dialog \
+        --menu "Available containers (esc-esc to refresh)" $(maximise_menu) \
+        "(renew all IPs)" "" \
+        $(incus list -fcompact --columns=ns4 | awk '!/^\s+NAME/ { print $1 " " $2 ($3 ? "/" $3 : "") }' | sort -k1) \
+        3>&1 1>&2 2>&3 || echo "(ERR:$?)")
+    echo
+    [ "${container}" = "(ERR:1)" ] && exit 0 # Cancel
+    [ "${container}" = "(ERR:255)" ] && continue # Timeout / escape-escape
+
+    [ "${container}" = "(renew all IPs)" ] && {
+        for container in $(incus list -fcompact -cns | awk '/RUNNING\s*$/ { print $1 }'); do
+            echo === $container ====
+            incus exec "${container}" -- systemctl restart systemd-networkd
+        done
+        continue
+    }
+
+    # Get the status of the given container, show menu based on current state
+    container_status=$(incus info "$container" \
+        | awk '/^Status:/ { print $2 }')
+
+    menu_title="Container $container currently $container_status"
+    case $container_status in
+    RUNNING)
+        container_operation=$(dialog --menu "$menu_title" $(maximise_menu) \
+            attach "" \
+            freeze "" \
+            upgrade "" \
+            console "" \
+            stop "" \
+            3>&1 1>&2 2>&3)
+        ;;
+    FROZEN)
+        container_operation="unfreeze"
+        ;;
+    STOPPED)
+        container_operation=$(dialog --menu "$menu_title" $(maximise_menu) \
+            start "" \
+            rename "" \
+            "edit-config" "" \
+            clone "" \
+            3>&1 1>&2 2>&3)
+        ;;
+    *)
+        echo "Unknown container state $container_status"
+        sleep 3
+        ;;
+    esac
+    [ -z "$container_operation" ] && continue
+
+    case $container_operation in
+    attach)
+        clear
+        term_title "Incus container shell: ${container}"
+        incus exec "${container}" --env TERM=xterm /bin/bash || sleep 3
+        ;;
+    upgrade)
+        clear
+        term_title "Incus apt upgrade: ${container}"
+        incus exec "${container}" -- /bin/sh -c "/usr/bin/apt update ; /usr/bin/apt upgrade && /usr/bin/apt autoremove"
+        ;;
+    edit-config)
+        incus config edit "${container}"
+        ;;
+    rename)
+        container_new="$(dialog --inputbox "New container name" 0 0 "${container}" \
+            3>&1 1>&2 2>&3)"
+        [ -z "${container_new}" ] && continue
+        [ "$(incus list -cn ${container_new} parp | wc -l)" -eq "1" ] && { echo "${container_new} Already exists!"; sleep 3 ; continue; }
+        incus rename "${container}" "${container_new}"
+
+        echo "${container_new}" | incus file edit ${container_new}/etc/hostname
+        ;;
+    clone)
+        container_new="$(dialog --inputbox "New container name" 0 0 "" \
+            3>&1 1>&2 2>&3)"
+        [ -z "${container_new}" ] && continue
+        incus copy ${container} ${container_new} || sleep 3
+
+        echo "${container_new}" | incus file edit ${container_new}/etc/hostname
+        ;;
+    *)
+        echo "Running incus ${container_operation} ${container}..."
+        incus "${container_operation}" "${container}" || sleep 3
+        ;;
+    esac
+done
